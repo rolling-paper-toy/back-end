@@ -1,9 +1,11 @@
 package com.sparklenote.roll.service;
 
 import com.sparklenote.domain.entity.Roll;
+import com.sparklenote.domain.entity.Student;
 import com.sparklenote.domain.entity.User;
 import com.sparklenote.domain.enumType.Role;
 import com.sparklenote.domain.repository.RollRepository;
+import com.sparklenote.domain.repository.StudentRepository;
 import com.sparklenote.domain.repository.UserRepository;
 import com.sparklenote.roll.dto.request.RollCreateRequestDto;
 import com.sparklenote.roll.dto.request.RollJoinRequestDto;
@@ -12,11 +14,15 @@ import com.sparklenote.roll.dto.response.RollJoinResponseDto;
 import com.sparklenote.roll.dto.response.RollResponseDTO;
 import com.sparklenote.roll.util.ClassCodeGenerator;
 import com.sparklenote.roll.util.UrlGenerator;
+import com.sparklenote.user.jwt.JWTUtil;
 import com.sparklenote.user.oAuth2.CustomOAuth2User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+
+import java.util.Optional;
 
 
 @Slf4j
@@ -24,9 +30,17 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class RollService {
 
+    @Value("${jwt.accessExpiration}")
+    private Long accessTokenExpiration;
+
+    @Value("${jwt.refreshExpiration}")
+    private Long refreshTokenExpiration;
+
     private final RollRepository rollRepository;
     private final UserRepository userRepository;
     private final UrlGenerator urlGenerator;
+    private final StudentRepository studentRepository;
+    private final JWTUtil jwtUtil;
 
     public RollResponseDTO createRoll(RollCreateRequestDto createRequestDto) {
         int classCode = ClassCodeGenerator.generateClassCode(); // 학급 코드 생성
@@ -57,32 +71,6 @@ public class RollService {
         return RollResponseDTO.fromRoll(roll, user.getId());
     }
 
-    public RollJoinResponseDto joinRoll(String url, RollJoinRequestDto joinRequestDto) {
-        Roll roll = rollRepository.findByUrl(url)
-                .orElseThrow(() -> new IllegalArgumentException("해당 URL의 Roll을 찾을 수 없습니다."));
-
-        // 학급 코드와 URL 검증
-        if (!roll.canStudentJoin(url, joinRequestDto.getClassCode())) {
-            throw new IllegalArgumentException("학급 코드가 일치하지 않습니다.");
-        }
-
-        // 학생 이름 확인
-        User user = userRepository.findByUsername(joinRequestDto.getStudentName())
-                .orElseThrow(() -> new IllegalArgumentException("학생을 찾을 수 없습니다."));
-
-        // 학생 정보 업데이트 (이름과 역할만 업데이트)
-        User updatedUser = user.withUpdatedStudentInfo(joinRequestDto.getStudentName(), Role.STUDENT);
-        userRepository.save(updatedUser);
-
-        // JoinResponseDTO 생성하여 반환
-        return RollJoinResponseDto.builder()
-                .url(roll.getUrl())
-                .classCode(roll.getClassCode())
-                .rollName(roll.getRollName())
-                .studentName(updatedUser.getName())
-                .build();
-    }
-
     public void deleteRoll(Long id) {
         Roll roll = rollRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("해당 ID의 Roll을 찾을 수 없습니다."));
@@ -102,5 +90,51 @@ public class RollService {
         // 수정된 Roll 정보를 DTO로 변환하여 반환
         Long userId = roll.getUser().getId();
         return RollResponseDTO.fromRoll(updatedRoll,userId);
+    }
+
+    public RollJoinResponseDto joinRoll(String url, RollJoinRequestDto joinRequestDto) {
+        // Roll 조회 및 학급 코드 검증
+        Roll roll = rollRepository.findByUrl(url)
+                .orElseThrow(() -> new IllegalArgumentException("해당 URL의 Roll을 찾을 수 없습니다."));
+
+        if (roll.getClassCode() != joinRequestDto.getClassCode()) {
+            throw new IllegalArgumentException("학급 코드가 일치하지 않습니다.");
+        }
+
+        // 학생 조회 또는 등록
+        Optional<Student> optionalStudent = studentRepository.findByClassCodeAndNameAndPinNumber(
+                joinRequestDto.getClassCode(),
+                joinRequestDto.getName(),
+                joinRequestDto.getPinNumber()
+        );
+
+        Student student;
+        if (optionalStudent.isEmpty()) {
+            // 회원가입 처리
+            student = studentRepository.save(joinRequestDto.toStudent(roll));
+        } else {
+            // 기존 학생 정보 사용
+            student = optionalStudent.get();
+        }
+
+        // JWT 토큰 생성
+        String accessToken = jwtUtil.createAccessToken(
+                student.getStudentId().toString(),
+                Role.STUDENT, // 학생의 역할을 지정
+                accessTokenExpiration
+        );
+        String refreshToken = jwtUtil.createRefreshToken(
+                student.getStudentId().toString(),
+                refreshTokenExpiration
+        );
+
+        // 응답 DTO 생성
+        RollJoinResponseDto responseDto = RollJoinResponseDto.builder()
+                .name(student.getName())
+                .accessToken(accessToken)
+                .refreshToken(refreshToken)
+                .build();
+
+        return responseDto;
     }
 }

@@ -1,5 +1,8 @@
 package com.sparklenote.roll.dto.response;
 
+import com.sparklenote.domain.entity.Student;
+import com.sparklenote.domain.repository.StudentRepository;
+import com.sparklenote.roll.dto.request.RollJoinRequestDto;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -10,9 +13,9 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class RollJoinResponseDto {
-    private String url;
-    private int classCode;
-    private String rollName;
-    private String studentName;
-    private String message;
+
+    private String name;
+    private String accessToken;
+    private String refreshToken;
+
 }

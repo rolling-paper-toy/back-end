@@ -38,11 +38,7 @@ public class JWTFilter extends OncePerRequestFilter {
 
         //Authorization 헤더 검증
         if (authorization == null) {
-
-            System.out.println("token null");
             filterChain.doFilter(request, response);
-
-            //조건이 해당되면 메소드 종료 (필수)
             return;
         }
 
@@ -51,21 +47,19 @@ public class JWTFilter extends OncePerRequestFilter {
 
         //토큰 소멸 시간 검증
         if (jwtUtil.isExpired(token)) {
-
-            System.out.println("token expired");
             filterChain.doFilter(request, response);
-
-            //조건이 해당되면 메소드 종료 (필수)
             return;
         }
 
         //토큰에서 username과 role 획득
         String username = jwtUtil.getUsername(token);
+        String roleName = jwtUtil.getRole(token);
+        Role role = Role.valueOf(roleName);
 
         //userDTO를 생성하여 값 set
         UserResponseDTO userResponseDTO = new UserResponseDTO();
         userResponseDTO.setUsername(username);
-        userResponseDTO.setRole(Role.TEACHER);
+        userResponseDTO.setRole(role);
 
         //UserDetails에 회원 정보 객체 담기
         CustomOAuth2User customOAuth2User = new CustomOAuth2User(userResponseDTO);
